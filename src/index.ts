@@ -4,7 +4,7 @@ import https from 'https';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const TARGET_DOMAIN = 'https://www.weintek.com/';
+const TARGET_DOMAIN = 'https://www.weintek.com';
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -12,7 +12,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/', async (req: Request, res: Response) => {
   try {
     const targetUrl = TARGET_DOMAIN + req.url;
-    console.log(`[${new Date().toISOString()}] Проксирование: ${req.method} ${req.url} -> ${targetUrl}`);
+    console.log(`[${new Date().toISOString()}] Проксирование: ${req.method} ${req.url}`);
 
     const headers: RawAxiosRequestHeaders = {
       'User-Agent': req.headers['user-agent'] as string || 'Mozilla/5.0 (compatible; ProxyBot/1.0)',
@@ -20,21 +20,11 @@ app.use('/', async (req: Request, res: Response) => {
       'Accept-Language': req.headers['accept-language'] as string || 'ru-RU,ru;q=0.9,en;q=0.8',
     };
 
-    if (req.headers.cookie) {
-      headers['Cookie'] = req.headers.cookie as string;
-    }
+    if (req.headers.cookie) headers['Cookie'] = req.headers.cookie as string;
+    if (req.headers.referer) headers['Referer'] = req.headers.referer as string;
+    if (req.headers['content-type']) headers['Content-Type'] = req.headers['content-type'] as string;
 
-    if (req.headers.referer) {
-      headers['Referer'] = req.headers.referer as string;
-    }
-
-    if (req.headers['content-type']) {
-      headers['Content-Type'] = req.headers['content-type'] as string;
-    }
-
-    const httpsAgent = new https.Agent({
-      rejectUnauthorized: false
-    });
+    const httpsAgent = new https.Agent({ rejectUnauthorized: false });
 
     const response: AxiosResponse = await axios({
       method: req.method as Method,
@@ -50,17 +40,8 @@ app.use('/', async (req: Request, res: Response) => {
 
     res.status(response.status);
 
-    const headersToSkip = [
-      'content-encoding',
-      'transfer-encoding',
-      'content-length',
-      'connection'
-    ];
-
-    const securityHeadersToRemove = [
-      'x-frame-options',
-      'content-security-policy'
-    ];
+    const headersToSkip = ['content-encoding', 'transfer-encoding', 'content-length', 'connection'];
+    const securityHeadersToRemove = ['x-frame-options', 'content-security-policy'];
 
     Object.entries(response.headers).forEach(([key, value]) => {
       const lowerKey = key.toLowerCase();
@@ -73,8 +54,36 @@ app.use('/', async (req: Request, res: Response) => {
     res.setHeader('X-Proxy-Timestamp', new Date().toISOString());
 
     const contentType = response.headers['content-type'] as string || '';
-    
-    if (contentType.includes('text/html')) {
+
+    if (req.url.includes('weinbot-plugin') && contentType.includes('javascript')) {
+      console.log('🔧 Найден файл бота weinbot-plugin, подменяем адрес iframe...');
+      
+      let jsContent = '';
+      
+      response.data.on('data', (chunk: Buffer) => {
+          jsContent += chunk.toString('utf-8');
+      });
+      
+      response.data.on('end', () => {
+        try {
+            const modifiedJs = jsContent
+              .replace(
+                /this\.IFRAME_SRC = "https:\/\/chatbot\.weincloud\.net\/weintek\.com"/,
+                'this.IFRAME_SRC = "http://185.106.94.36"'
+              )
+              .replace(
+                /https:\/\/chatbot\.weincloud\.net\/weintek\.com/g,
+                'http://185.106.94.36'
+              );
+          
+          console.log('✅ Адрес iframe в боте успешно подменен');
+          res.send(modifiedJs);
+        } catch (err) {
+          console.error('Ошибка при обработке JS бота:', err);
+          res.send(jsContent);
+        }
+      });
+    } else if (contentType.includes('text/html')) {
       let html = '';
       
       response.data.on('data', (chunk: Buffer) => {
@@ -89,7 +98,12 @@ app.use('/', async (req: Request, res: Response) => {
             .replace(/(href|src|action)=(["'])\/(?!\/)/g, '$1=$2/')
             .replace(/url\(["']?\/(?!\/)/g, 'url(/')
             .replace('<head>', '<head><base href="/">');
-
+          
+          modifiedHtml = modifiedHtml.replace(
+            /https:\/\/chatbot\.weincloud\.net\/weintek\.com/g,
+            'http://185.106.94.36'
+          );
+          
           res.send(modifiedHtml);
         } catch (err) {
           console.error('Ошибка при обработке HTML:', err);
@@ -99,10 +113,8 @@ app.use('/', async (req: Request, res: Response) => {
     } else {
       response.data.pipe(res);
     }
-
   } catch (error: any) {
     console.error(`[${new Date().toISOString()}] Ошибка прокси:`, error.message);
-    
     res.status(500).json({
       error: 'Proxy error',
       message: error.message,
@@ -110,11 +122,6 @@ app.use('/', async (req: Request, res: Response) => {
       timestamp: new Date().toISOString()
     });
   }
-});
-
-app.use((err: Error, req: Request, res: Response, next: any) => {
-  console.error('Необработанная ошибка:', err);
-  res.status(500).send('Internal Server Error');
 });
 
 app.listen(PORT, () => {
