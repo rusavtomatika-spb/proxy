@@ -57,8 +57,14 @@ app.use('/', async (req: Request, res: Response) => {
       'connection'
     ];
 
+    const securityHeadersToRemove = [
+      'x-frame-options',
+      'content-security-policy'
+    ];
+
     Object.entries(response.headers).forEach(([key, value]) => {
-      if (!headersToSkip.includes(key.toLowerCase()) && value) {
+      const lowerKey = key.toLowerCase();
+      if (!headersToSkip.includes(lowerKey) && !securityHeadersToRemove.includes(lowerKey) && value) {
         res.setHeader(key, Array.isArray(value) ? value.join(', ') : value);
       }
     });
