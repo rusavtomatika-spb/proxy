@@ -66,15 +66,27 @@ app.use('/', async (req: Request, res: Response) => {
       
       response.data.on('end', () => {
         try {
-            const modifiedJs = jsContent
-              .replace(
-                /this\.IFRAME_SRC = "https:\/\/chatbot\.weincloud\.net\/weintek\.com"/,
-                'this.IFRAME_SRC = "http://185.106.94.36"'
-              )
-              .replace(
-                /https:\/\/chatbot\.weincloud\.net\/weintek\.com/g,
-                'http://185.106.94.36'
-              );
+          let modifiedJs = jsContent;
+          
+          modifiedJs = modifiedJs.replace(
+            /this\.IFRAME_SRC\s*=\s*["']https:\/\/chatbot\.weincloud\.net\/weintek\.com["']/,
+            'this.IFRAME_SRC = "http://185.106.94.36"'
+          );
+          
+          modifiedJs = modifiedJs.replace(
+            'this.IFRAME_SRC = "https://chatbot.weincloud.net/weintek.com"',
+            'this.IFRAME_SRC = "http://185.106.94.36"'
+          );
+          
+          modifiedJs = modifiedJs.replace(
+            /IFRAME_SRC = ["']https:\/\/chatbot\.weincloud\.net\/weintek\.com["']/,
+            'IFRAME_SRC = "http://185.106.94.36"'
+          );
+          
+          modifiedJs = modifiedJs.replace(
+            /https:\/\/chatbot\.weincloud\.net\/weintek\.com/g,
+            'http://185.106.94.36'
+          );
           
           console.log('✅ Адрес iframe в боте успешно подменен');
           res.send(modifiedJs);
