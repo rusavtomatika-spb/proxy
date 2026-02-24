@@ -68,25 +68,40 @@ app.use('/', async (req: Request, res: Response) => {
         try {
           let modifiedJs = jsContent;
           
+          const iframeCreationRegex = /const\s+l\s*=\s*n\([\s\S]*?iframe[\s\S]*?src:[\s\S]*?this\.IFRAME_SRC[\s\S]*?\)/;
+          
+          const newIframeCode = `const l = n("iframe", {
+            id: \`widget-iframe-\${this.UUID}\`,
+            className: "iframe-style",
+            src: "http://185.106.94.36",
+            frameborder: "0",
+            sandbox: "allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox",
+            allow: "clipboard-write"
+          })`;
+          
+          modifiedJs = modifiedJs.replace(iframeCreationRegex, newIframeCode);
+          
           modifiedJs = modifiedJs.replace(
             /this\.IFRAME_SRC\s*=\s*["']https:\/\/chatbot\.weincloud\.net\/weintek\.com["']/,
             'this.IFRAME_SRC = "http://185.106.94.36"'
           );
           
-          modifiedJs = modifiedJs.replace(
-            'this.IFRAME_SRC = "https://chatbot.weincloud.net/weintek.com"',
-            'this.IFRAME_SRC = "http://185.106.94.36"'
-          );
-          
-          modifiedJs = modifiedJs.replace(
-            /IFRAME_SRC = ["']https:\/\/chatbot\.weincloud\.net\/weintek\.com["']/,
-            'IFRAME_SRC = "http://185.106.94.36"'
-          );
-          
-          modifiedJs = modifiedJs.replace(
-            /https:\/\/chatbot\.weincloud\.net\/weintek\.com/g,
-            'http://185.106.94.36'
-          );
+          modifiedJs = `
+            (function() {
+              const originalCreateElement = document.createElement;
+              document.createElement = function(tagName) {
+                const element = originalCreateElement.call(document, tagName);
+                if (tagName.toLowerCase() === 'iframe') {
+                  setTimeout(() => {
+                    if (!element.src || element.src.includes('chatbot.weincloud.net')) {
+                      element.src = 'http://185.106.94.36';
+                    }
+                  }, 0);
+                }
+                return element;
+              };
+            })();
+          ` + modifiedJs;
           
           console.log('✅ Адрес iframe в боте успешно подменен');
           res.send(modifiedJs);
