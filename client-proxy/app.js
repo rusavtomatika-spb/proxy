@@ -26,6 +26,8 @@ const logger = pino({
 const app = express();
 const PORT = process.env.PORT || 3000;
 const TARGET_DOMAIN = 'www.weintek.com';
+const W1_DOMAIN = 'w1.weintek.com';
+const CDN_DOMAIN = 'cdn.weintek.cloud';
 const CHATBOT_DOMAIN = 'chatbot.weincloud.net';
 const PROXY_DOMAIN = process.env.PROXY_DOMAIN || 'sss55.space';
 
@@ -65,30 +67,45 @@ function replaceDomains(content, contentType) {
   if (!content || typeof content !== 'string') return content;
 
   let replaced = content;
-  
+
   replaced = replaced
-    .replace(/https?:\/\/(?:www\.)?chatbot\.weincloud\.net/g, `https://${PROXY_DOMAIN}/chatbot`)
-    .replace(/\/\/chatbot\.weincloud\.net/g, `//${PROXY_DOMAIN}/chatbot`)
-    .replace(/chatbot\.weincloud\.net/g, `${PROXY_DOMAIN}/chatbot`);
+    .replace(/crossorigin(=["'][^"']*["'])?/g, '')
+    .replace(/\s+crossorigin\b/g, '')
+    .replace(/\bcrossorigin\b/g, '');
 
   if (contentType.includes('text/html')) {
     const $ = cheerio.load(replaced);
     
-    $('[src*="chatbot.weincloud.net"]').each((i, el) => {
-      const src = $(el).attr('src');
-      if (src) {
-        $(el).attr('src', src.replace(/chatbot\.weincloud\.net/g, `${PROXY_DOMAIN}/chatbot`));
+    $('[crossorigin]').removeAttr('crossorigin');
+    $('script[src*="/bundles/"]').remove();
+    $('script[src*="modernizr"]').remove();
+    $('script[src*="jquery"]').remove();
+    $('script[src*="bootstrap"]').remove();
+    $('script[src*="swiper"]').remove();
+    
+    $('[src*="w1.weintek.com"], [href*="w1.weintek.com"]').each((i, el) => {
+      const attr = $(el).attr('src') ? 'src' : 'href';
+      const value = $(el).attr(attr);
+      if (value) {
+        $(el).attr(attr, value.replace(W1_DOMAIN, PROXY_DOMAIN));
       }
     });
     
-    $('[href*="chatbot.weincloud.net"]').each((i, el) => {
-      const href = $(el).attr('href');
-      if (href) {
-        $(el).attr('href', href.replace(/chatbot\.weincloud\.net/g, `${PROXY_DOMAIN}/chatbot`));
+    $('[src*="cdn.weintek.cloud"], [href*="cdn.weintek.cloud"]').each((i, el) => {
+      const attr = $(el).attr('src') ? 'src' : 'href';
+      const value = $(el).attr(attr);
+      if (value) {
+        $(el).attr(attr, value.replace(CDN_DOMAIN, `${PROXY_DOMAIN}/cdn`));
       }
     });
 
-    $('[crossorigin]').removeAttr('crossorigin');
+    $('[src*="chatbot.weincloud.net"], [href*="chatbot.weincloud.net"]').each((i, el) => {
+      const attr = $(el).attr('src') ? 'src' : 'href';
+      const value = $(el).attr(attr);
+      if (value) {
+        $(el).attr(attr, value.replace(CHATBOT_DOMAIN, `${PROXY_DOMAIN}/chatbot`));
+      }
+    });
     
     replaced = $.html();
   }
@@ -96,8 +113,24 @@ function replaceDomains(content, contentType) {
   if (contentType.includes('javascript') || contentType.includes('css')) {
     replaced = replaced
       .replace(/crossorigin[=]["']?[^"'\s]*["']?/g, '')
-      .replace(/["']https?:\/\/chatbot\.weincloud\.net/g, `"https://${PROXY_DOMAIN}/chatbot`);
+      .replace(new RegExp(`["']https?://${W1_DOMAIN.replace(/\./g, '\\.')}`, 'g'), `"https://${PROXY_DOMAIN}`)
+      .replace(new RegExp(`["']https?://${CDN_DOMAIN.replace(/\./g, '\\.')}`, 'g'), `"https://${PROXY_DOMAIN}/cdn`)
+      .replace(new RegExp(`["']https?://${CHATBOT_DOMAIN.replace(/\./g, '\\.')}`, 'g'), `"https://${PROXY_DOMAIN}/chatbot`);
   }
+
+  replaced = replaced
+    .replace(new RegExp(`https?://(?:www\\.)?${CHATBOT_DOMAIN.replace(/\./g, '\\.')}`, 'g'), `https://${PROXY_DOMAIN}/chatbot`)
+    .replace(new RegExp(`//${CHATBOT_DOMAIN.replace(/\./g, '\\.')}`, 'g'), `//${PROXY_DOMAIN}/chatbot`)
+    .replace(new RegExp(`${CHATBOT_DOMAIN.replace(/\./g, '\\.')}`, 'g'), `${PROXY_DOMAIN}/chatbot`)
+    .replace(new RegExp(`https?://${W1_DOMAIN.replace(/\./g, '\\.')}`, 'g'), `https://${PROXY_DOMAIN}`)
+    .replace(new RegExp(`//${W1_DOMAIN.replace(/\./g, '\\.')}`, 'g'), `//${PROXY_DOMAIN}`)
+    .replace(new RegExp(`https?://${CDN_DOMAIN.replace(/\./g, '\\.')}`, 'g'), `https://${PROXY_DOMAIN}/cdn`)
+    .replace(new RegExp(`//${CDN_DOMAIN.replace(/\./g, '\\.')}`, 'g'), `//${PROXY_DOMAIN}/cdn`);
+
+  replaced = replaced.replace(
+    '<script type="module" src="/js/index.8LxikIYk.js">',
+    '<script src="/js/index.8LxikIYk.js">'
+  );
 
   return replaced;
 }
@@ -106,12 +139,18 @@ async function proxyRequest(req, res, targetUrl, targetHost) {
   try {
     const method = req.method.toLowerCase();
     const headers = {
-      'User-Agent': req.get('User-Agent') || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      'Accept': req.get('Accept') || '*/*',
-      'Accept-Language': req.get('Accept-Language') || 'en-US,en;q=0.9',
-      'Referer': req.get('Referer') ? req.get('Referer').replace(PROXY_DOMAIN, targetHost) : `https://${targetHost}/`,
-      'Cookie': req.get('Cookie') || '',
-      ...(req.get('Content-Type') && { 'Content-Type': req.get('Content-Type') })
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+      'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
+      'Connection': 'keep-alive',
+      'Upgrade-Insecure-Requests': '1',
+      'Sec-Fetch-Dest': 'document',
+      'Sec-Fetch-Mode': 'navigate',
+      'Sec-Fetch-Site': 'none',
+      'Sec-Fetch-User': '?1',
+      'Cache-Control': 'max-age=0',
+      ...(req.get('Cookie') && { 'Cookie': req.get('Cookie') }),
+      ...(req.get('Referer') && { 'Referer': req.get('Referer').replace(PROXY_DOMAIN, TARGET_DOMAIN) })
     };
 
     const response = await axiosInstance({
@@ -139,9 +178,11 @@ async function proxyRequest(req, res, targetUrl, targetHost) {
 
     let data = response.data;
     
-    if (contentType.includes('text/html') || 
+    if (targetHost === CHATBOT_DOMAIN || 
+        contentType.includes('text/html') || 
         contentType.includes('javascript') || 
-        contentType.includes('css')) {
+        contentType.includes('css') ||
+        contentType.includes('xml')) {
       const content = data.toString('utf-8');
       data = Buffer.from(replaceDomains(content, contentType), 'utf-8');
     }
@@ -166,14 +207,27 @@ async function proxyRequest(req, res, targetUrl, targetHost) {
   }
 }
 
-app.get('/', async (req, res) => {
-  const targetUrl = `https://${TARGET_DOMAIN}${req.url}`;
-  await proxyRequest(req, res, targetUrl, TARGET_DOMAIN);
+app.get('/js/index.8LxikIYk.js', (req, res) => {
+  const filePath = path.join(__dirname, 'static/js/index.8LxikIYk.js');
+  
+  res.set({
+    'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+    'Pragma': 'no-cache',
+    'Expires': '0',
+    'ETag': Date.now().toString()
+  });
+  
+  res.sendFile(filePath, (err) => {
+    if (err) {
+      logger.error({ err }, 'Error sending main script file');
+      res.status(500).send('console.error("Failed to load main script");');
+    }
+  });
 });
 
-app.get('/*', async (req, res) => {
-  const targetUrl = `https://${TARGET_DOMAIN}${req.url}`;
-  await proxyRequest(req, res, targetUrl, TARGET_DOMAIN);
+app.use('/weinbot-plugin-1.0.0.js', async (req, res) => {
+  const targetUrl = `https://${CHATBOT_DOMAIN}/weinbot-plugin-1.0.0.js`;
+  await proxyRequest(req, res, targetUrl, CHATBOT_DOMAIN);
 });
 
 app.use('/chatbot', async (req, res) => {
@@ -191,28 +245,36 @@ app.use('/css', async (req, res) => {
   await proxyRequest(req, res, targetUrl, CHATBOT_DOMAIN);
 });
 
-app.use('/weinbot-plugin-1.0.0.js', async (req, res) => {
-  const targetUrl = `https://${CHATBOT_DOMAIN}/weinbot-plugin-1.0.0.js`;
-  await proxyRequest(req, res, targetUrl, CHATBOT_DOMAIN);
+app.use('/w1', async (req, res) => {
+  const targetUrl = `https://${W1_DOMAIN}${req.url}`;
+  await proxyRequest(req, res, targetUrl, W1_DOMAIN);
 });
 
-app.use('/w1', async (req, res) => {
-  const targetUrl = `https://w1.weintek.com${req.url}`;
-  await proxyRequest(req, res, targetUrl, 'w1.weintek.com');
+app.use('/wkstatic', async (req, res) => {
+  const targetUrl = `https://${W1_DOMAIN}/wkstatic${req.url}`;
+  await proxyRequest(req, res, targetUrl, W1_DOMAIN);
 });
 
 app.use('/cdn', async (req, res) => {
-  const targetUrl = `https://cdn.weintek.cloud${req.url}`;
-  await proxyRequest(req, res, targetUrl, 'cdn.weintek.cloud');
+  const targetUrl = `https://${CDN_DOMAIN}${req.url}`;
+  await proxyRequest(req, res, targetUrl, CDN_DOMAIN);
 });
 
-app.use((err, req, res, next) => {
-  logger.error({ err }, 'Unhandled error');
-  res.status(500).send('Internal Server Error');
+app.get('/*', async (req, res) => {
+  const targetUrl = `https://${TARGET_DOMAIN}${req.url}`;
+  await proxyRequest(req, res, targetUrl, TARGET_DOMAIN);
+});
+
+app.get('/', async (req, res) => {
+  const targetUrl = `https://${TARGET_DOMAIN}${req.url}`;
+  await proxyRequest(req, res, targetUrl, TARGET_DOMAIN);
 });
 
 app.listen(PORT, '0.0.0.0', () => {
   logger.info(`Weintek proxy running on port ${PORT}`);
   logger.info(`Proxy domain: ${PROXY_DOMAIN}`);
   logger.info(`Target: ${TARGET_DOMAIN}`);
+  logger.info(`W1: ${W1_DOMAIN}`);
+  logger.info(`CDN: ${CDN_DOMAIN}`);
+  logger.info(`Chatbot: ${CHATBOT_DOMAIN}`);
 });
